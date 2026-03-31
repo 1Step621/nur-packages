@@ -14,12 +14,20 @@ writeShellApplication {
 
   text = ''
     #!/bin/bash
-
     set -euo pipefail
 
-    CURRENT=$(nmcli -t -f active,ssid dev wifi | grep '^yes' | cut -d: -f2)
+    FIFO=$(mktemp -u)
+    mkfifo "$FIFO"
 
-    NETWORKS=$(nmcli -t -f SSID,SIGNAL,SECURITY dev wifi list 2>/dev/null \
+    fuzzel --dmenu --prompt="Wi-Fi  " < "$FIFO" > /tmp/fuzzel_choice &
+    FUZPID=$!
+
+    echo -n "" > "$FIFO"
+
+    {
+        CURRENT=$(nmcli -t -f active,ssid dev wifi | grep '^yes' | cut -d: -f2)
+
+        nmcli -t -f SSID,SIGNAL,SECURITY dev wifi list 2>/dev/null \
         | awk -F: '!seen[$1]++ && $1 != ""' \
         | while IFS=: read -r ssid signal _security; do
             if   [ "$signal" -ge 75 ]; then icon="󰤨"
@@ -29,16 +37,18 @@ writeShellApplication {
             fi
             [ "$ssid" = "$CURRENT" ] && mark=" ✓" || mark=""
             echo "$icon    $ssid$mark"
-        done)
+        done
 
-    OPTIONS="$NETWORKS
-    󰤭    切断する"
+        echo "󰤭    切断する"
+    } > "$FIFO"
 
-    CHOSEN=$(echo "$OPTIONS" | fuzzel --dmenu --prompt="Wi-Fi  ")
-
-    SSID=$(echo "$CHOSEN" | sed 's/^.    //' | sed 's/ ✓$//')
+    wait $FUZPID
+    CHOSEN=$(cat /tmp/fuzzel_choice)
+    rm -f "$FIFO" /tmp/fuzzel_choice
 
     [ -z "$CHOSEN" ] && exit 0
+
+    SSID=$(echo "$CHOSEN" | sed 's/^.    //' | sed 's/ ✓$//')
 
     if [ "$SSID" = "切断する" ]; then
         nmcli dev disconnect wlan0
@@ -48,7 +58,8 @@ writeShellApplication {
     if nmcli con show "$SSID" &>/dev/null; then
         nmcli con up "$SSID"
     else
-        PASS=$(echo "" | fuzzel --dmenu --prompt="Password for $SSID  ")
+        sleep 0.5
+        PASS=$(fuzzel --dmenu --password --prompt="Password  ")
         nmcli dev wifi connect "$SSID" password "$PASS"
     fi
   '';
