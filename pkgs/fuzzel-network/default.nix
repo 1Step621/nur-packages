@@ -2,14 +2,22 @@
   lib,
   writeShellApplication,
   coreutils,
-  slurp,
-  wf-recorder,
+  fuzzel,
+  networkmanager,
+  gawk,
+  gnugrep,
+  gnused
 }:
 writeShellApplication {
   name = "fuzzel-network";
 
   runtimeInputs = [
     coreutils
+    fuzzel
+    networkmanager
+    gawk
+    gnugrep
+    gnused
   ];
 
   text = ''
