@@ -6,7 +6,7 @@
   networkmanager,
   gawk,
   gnugrep,
-  gnused
+  gnused,
 }:
 writeShellApplication {
   name = "fuzzel-network";
@@ -32,12 +32,16 @@ writeShellApplication {
 
     echo -n "" > "$FIFO"
 
-    {
-        CURRENT=$(nmcli -t -f active,ssid dev wifi | grep '^yes' | cut -d: -f2)
+    IFACE=$(nmcli -t -f DEVICE,TYPE dev | awk -F: '$2=="wifi"{print $1; exit}')
 
-        nmcli -t -f SSID,SIGNAL,SECURITY dev wifi list 2>/dev/null \
+    {
+        nmcli dev wifi rescan ifname "$IFACE" >/dev/null 2>&1
+
+        CURRENT=$(nmcli -t -f ACTIVE,SSID dev wifi | grep '^yes' | cut -d: -f2)
+
+        nmcli -t -f SSID,SIGNAL dev wifi list 2>/dev/null \
         | awk -F: '!seen[$1]++ && $1 != ""' \
-        | while IFS=: read -r ssid signal _security; do
+        | while IFS=: read -r ssid signal; do
             if   [ "$signal" -ge 75 ]; then icon="󰤨"
             elif [ "$signal" -ge 50 ]; then icon="󰤥"
             elif [ "$signal" -ge 25 ]; then icon="󰤢"
@@ -46,8 +50,6 @@ writeShellApplication {
             [ "$ssid" = "$CURRENT" ] && mark=" ✓" || mark=""
             echo "$icon    $ssid$mark"
         done
-
-        echo "󰤭    切断する"
     } > "$FIFO"
 
     wait $FUZPID
@@ -58,17 +60,14 @@ writeShellApplication {
 
     SSID=$(echo "$CHOSEN" | sed 's/^.    //' | sed 's/ ✓$//')
 
-    if [ "$SSID" = "切断する" ]; then
-        nmcli dev disconnect wlan0
-        exit 0
-    fi
+    [ "$SSID" = "$CURRENT" ] && exit 0
 
     if nmcli con show "$SSID" &>/dev/null; then
         nmcli con up "$SSID"
     else
         sleep 0.5
         PASS=$(fuzzel --dmenu --password --prompt="Password  ")
-        nmcli dev wifi connect "$SSID" password "$PASS"
+        nmcli dev wifi connect "$SSID" password "$PASS" ifname "$IFACE"
     fi
   '';
 
