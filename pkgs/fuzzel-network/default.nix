@@ -30,6 +30,8 @@ writeShellApplication {
     fuzzel --dmenu --prompt="Wi-Fi  " < "$FIFO" > /tmp/fuzzel_choice &
     FUZPID=$!
 
+    echo -n "" > "$FIFO"
+
     IFACE=$(nmcli -t -f DEVICE,TYPE dev | awk -F: '$2=="wifi"{print $1; exit}')
     CURRENT=$(nmcli -t -f ACTIVE,SSID dev wifi | awk -F: '$1=="yes"{print $2}')
 
