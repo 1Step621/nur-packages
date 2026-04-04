@@ -30,16 +30,11 @@ writeShellApplication {
     fuzzel --dmenu --prompt="Wi-Fi  " < "$FIFO" > /tmp/fuzzel_choice &
     FUZPID=$!
 
-    echo -n "" > "$FIFO"
-
     IFACE=$(nmcli -t -f DEVICE,TYPE dev | awk -F: '$2=="wifi"{print $1; exit}')
+    CURRENT=$(nmcli -t -f ACTIVE,SSID dev wifi | awk -F: '$1=="yes"{print $2}')
 
     {
-        nmcli dev wifi rescan ifname "$IFACE" >/dev/null 2>&1
-
-        CURRENT=$(nmcli -t -f ACTIVE,SSID dev wifi | grep '^yes' | cut -d: -f2)
-
-        nmcli -t -f SSID,SIGNAL dev wifi list 2>/dev/null \
+        nmcli -t -f SSID,SIGNAL dev wifi list \
         | awk -F: '!seen[$1]++ && $1 != ""' \
         | while IFS=: read -r ssid signal; do
             if   [ "$signal" -ge 75 ]; then icon="󰤨"
@@ -47,10 +42,19 @@ writeShellApplication {
             elif [ "$signal" -ge 25 ]; then icon="󰤢"
             else icon="󰤟"
             fi
-            [ "$ssid" = "$CURRENT" ] && mark=" ✓" || mark=""
+
+            if [ -n "$CURRENT" ] && [ "$ssid" = "$CURRENT" ]; then
+                mark=" ✓"
+            else
+                mark=""
+            fi
+
             echo "$icon    $ssid$mark"
         done
-    } > "$FIFO"
+
+        echo "󰤭    Disconnect"
+        echo "󰑓    Rescan"
+    } > "$FIFO" &
 
     wait $FUZPID
     CHOSEN=$(cat /tmp/fuzzel_choice)
@@ -60,13 +64,27 @@ writeShellApplication {
 
     SSID=$(echo "$CHOSEN" | sed 's/^.    //' | sed 's/ ✓$//')
 
-    [ "$SSID" = "$CURRENT" ] && exit 0
+    if [ "$SSID" = "Disconnect" ]; then
+        nmcli con down id "$CURRENT"
+        exit 0
+    fi
+
+    if [ "$SSID" = "Rescan" ]; then
+        fuzzel --dmenu --mesg "Rescanning..." --hide-prompt --lines 0 &
+        TMPPID=$!
+        nmcli dev wifi list --rescan yes >/dev/null
+        kill "$TMPPID"
+        $0
+        exit 0
+    fi
 
     if nmcli con show "$SSID" &>/dev/null; then
         nmcli con up "$SSID"
     else
-        sleep 0.5
-        PASS=$(fuzzel --dmenu --password --prompt="Password  ")
+        PASS=$(fuzzel --dmenu --password --prompt-only "Password  ")
+
+        [ -z "$PASS" ] && exit 0
+        
         nmcli dev wifi connect "$SSID" password "$PASS" ifname "$IFACE"
     fi
   '';
